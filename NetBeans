@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Employee Form — Insert to JPDB</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; padding: 24px; max-width:700px; margin:auto; }
+    label { display:block; margin-top:12px; }
+    input[type="text"], input[type="email"] { width:100%; padding:8px; box-sizing:border-box; }
+    button { margin-top:16px; padding:10px 14px; border-radius:6px; }
+    .msg { margin-top:12px; padding:10px; border-radius:6px; display:none; }
+    .msg.success { background:#e6ffed; color:#0a6200; display:none; }
+    .msg.error   { background:#ffe6e6; color:#7a0000; display:none; }
+  </style>
+</head>
+<body>
+  <h1>Employee — Add Record</h1>
+
+  <form id="employeeForm" onsubmit="event.preventDefault(); saveEmployee();">
+    <label>
+      Name
+      <input id="name" type="text" placeholder="Full name" />
+    </label>
+
+    <label>
+      Email
+      <input id="email" type="email" placeholder="name@example.com" />
+    </label>
+
+    <button type="submit">Save Employee</button>
+    <button type="button" onclick="resetForm()">Reset</button>
+  </form>
+
+  <div id="success" class="msg success"></div>
+  <div id="error" class="msg error"></div>
+
+<script>
+/*
+  IMPORTANT:
+  - Replace the placeholders in CONFIG with values from your login2explore / JPDB dashboard.
+  - The JPDB docs indicate insert uses HTTP PUT — confirm the exact endpoint & request envelope on your dashboard/docs. :contentReference[oaicite:1]{index=1}
+*/
+
+const CONFIG = {
+  // Example: "https://api.login2explore.com/jpdb/..." or your specific API base URL from dashboard
+  BASE_URL: "https://api.login2explore.com",  
+
+  // Your API token / auth key from the Login2Explore dashboard
+  API_TOKEN: "<YOUR_API_TOKEN>",
+
+  // Database name and relation (table) name as configured in your JPDB account
+  DB_NAME: "<YOUR_DB_NAME>",
+  RELATION_NAME: "<YOUR_RELATION_NAME>",
+
+  // Endpoint path used to insert a single record — many JPDB examples use PUT for insert.
+  // Replace this if your dashboard shows a different path.
+  INSERT_PATH: "/jpdb/insert" // <-- placeholder; change to actual insert path from docs/dashboard
+};
+
+function showMsg(id, text) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.style.display = text ? 'block' : 'none';
+}
+
+function resetForm() {
+  document.getElementById('employeeForm').reset();
+  showMsg('success','');
+  showMsg('error','');
+}
+
+function validateAndGetFormData() {
+  const name = document.getElementById('name').value.trim();
+  const email = document.getElementById('email').value.trim();
+
+  if (!name) {
+    throw new Error("Name is required.");
+  }
+  if (!email) {
+    throw new Error("Email is required.");
+  }
+  // lightweight email regex check
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    throw new Error("Please enter a valid email address.");
+  }
+
+  return { name, email };
+}
+
+async function saveEmployee() {
+  showMsg('success','');
+  showMsg('error','');
+
+  let data;
+  try {
+    data = validateAndGetFormData();
+  } catch (err) {
+    showMsg('error', err.message);
+    return;
+  }
+
+  // Build the request payload. JPDB may require a specific envelope — check your dashboard/docs and
+  // adjust body structure accordingly. The following is a general JSON-body example.
+  const payload = {
+    // token and DB/relation details are often required — adjust to JPDB's required keys.
+    token: CONFIG.API_TOKEN,
+    dbName: CONFIG.DB_NAME,
+    relationName: CONFIG.RELATION_NAME,
+    record: {
+      name: data.name,
+      email: data.email,
+      createdAt: new Date().toISOString()
+    }
+  };
+
+  const url = CONFIG.BASE_URL + CONFIG.INSERT_PATH;
+
+  try {
+    // Many JPDB tutorials use PUT for inserts; if your JPDB instance expects POST,
+    // change method to 'POST' and adjust body accordingly.
+    const resp = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    // HTTP-level check
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${text}`);
+    }
+
+    // parse JSON response (if API returns JSON)
+    const json = await resp.json();
+
+    // Basic success handling — adjust reading fields per actual API response
+    if (json && (json.status === 'success' || json.ok || json.statusCode === 200)) {
+      showMsg('success', 'Employee saved successfully. Server response: ' + JSON.stringify(json));
+      resetForm();
+    } else {
+      // If API returns an error structure, surface it
+      showMsg('error', 'API returned an error: ' + JSON.stringify(json));
+    }
+
+  } catch (err) {
+    showMsg('error', 'Failed to save: ' + err.message);
+    console.error(err);
+  }
+}
+</script>
+
+</body>
+</html>
