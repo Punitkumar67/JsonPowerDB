@@ -1,255 +1,166 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Employee Form — AJAX (XMLHttpRequest) + JPDB</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login2Explore — Employee Form</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Bootstrap -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+
+  <!-- jQuery + Bootstrap JS -->
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
+
+  <!-- JPDB commons (you included this) -->
+  <script src="https://login2explore.com/jpdb/resources/js/0.0.3/jpdb-commons.js"></script>
+
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; padding:24px; max-width:720px; margin:auto; }
-    label { display:block; margin-top:12px; }
-    input[type="text"], input[type="email"] { width:100%; padding:8px; box-sizing:border-box; }
-    button { margin-top:14px; padding:10px 14px; border-radius:6px; cursor:pointer; }
-    .msg { margin-top:12px; padding:10px; border-radius:6px; display:none; }
+    body { padding-top: 24px; }
+    pre#rawResp { max-height: 240px; overflow:auto; background:#f8f8f8; padding:10px; border:1px solid #eee; }
+    .msg { display:none; margin-top:12px; padding:10px; border-radius:6px; }
     .msg.success { background:#e6ffed; color:#0a6200; }
-    .msg.error   { background:#ffe6e6; color:#7a0000; }
-    .row { display:flex; gap:8px; }
-    .row > * { flex:1; }
-    small { color:#555; display:block; margin-top:6px; }
-    pre { background:#f5f5f5; padding:10px; overflow:auto; max-height:200px; }
+    .msg.error { background:#ffe6e6; color:#7a0000; }
   </style>
 </head>
 <body>
+  <div class="container">
+    <h2>Employee Form (Vertical)</h2>
 
-  <h1>Employee Form (AJAX)</h1>
+    <form id="empForm" novalidate>
+      <div class="form-group">
+        <label for="empId">Employee ID</label>
+        <input type="text" class="form-control" id="empId" name="empId" placeholder="Enter Employee ID" required>
+      </div>
 
-  <form id="employeeForm" onsubmit="event.preventDefault(); saveEmployeeAjax();">
-    <label>
-      Name
-      <input id="name" type="text" placeholder="Full name" />
-    </label>
+      <div class="form-group">
+        <label for="empName">Employee Name</label>
+        <input type="text" class="form-control" id="empName" name="empName" placeholder="Enter Employee Name" required>
+      </div>
 
-    <label>
-      Email
-      <input id="email" type="email" placeholder="name@example.com" />
-      <small>Use Email as unique key (example). Change logic if you use a different key.</small>
-    </label>
+      <div class="form-group">
+        <label for="empEmail">Employee Email</label>
+        <input type="email" class="form-control" id="empEmail" name="empEmail" placeholder="Enter Employee Email" required>
+      </div>
 
-    <div class="row">
-      <button type="submit">Save (AJAX Insert)</button>
-      <button type="button" onclick="updateEmployeeAjax()">Update (AJAX PUT)</button>
-      <button type="button" onclick="getEmployeeAjax()">Get by Email</button>
-      <button type="button" onclick="resetForm()">Reset</button>
-    </div>
-  </form>
+      <div class="form-group">
+        <button type="button" id="empSave" class="btn btn-primary">Save</button>
+        <button type="button" id="empReset" class="btn btn-default">Reset</button>
+      </div>
+    </form>
 
-  <div id="success" class="msg success"></div>
-  <div id="error" class="msg error"></div>
+    <div id="success" class="msg success"></div>
+    <div id="error" class="msg error"></div>
 
-  <h3>Raw API response (for debugging)</h3>
-  <pre id="rawResp">—</pre>
+    <h4>Raw API response</h4>
+    <pre id="rawResp">—</pre>
+  </div>
 
-<script>
-/* =========================
-   CONFIG - CHANGE THESE
-   ========================= */
-const CONFIG = {
-  BASE_URL: "https://api.login2explore.com", // exact base URL from JPDB dashboard
-  API_PATH: "/api/irl", // example path — replace with the insert/update API path shown on your dashboard
-  API_TOKEN: "<YOUR_API_TOKEN>",
-  DB_NAME: "<YOUR_DB_NAME>",
-  RELATION: "Employee" // example relation name
-};
-/* ========================= */
+  <script>
+    // ---------- CONFIG: replace with your actual token/db/rel ----------
+    const JPDB_TOKEN = "90938667|-31949286622448237|90946149"; // <-- REPLACE this with your token
+    const JPDB_DB = "SAMPLE";
+    const JPDB_REL = "EMP-REL";
+    const JPDB_BASE_URL = "http://api.login2explore.com:5577";
+    const JPDB_IML_PATH = "/api/iml";
+    // -------------------------------------------------------------------
 
-function showMsg(id, text) {
-  const el = document.getElementById(id);
-  if (!text) { el.style.display = 'none'; el.textContent = ''; return; }
-  el.textContent = text;
-  el.style.display = 'block';
-}
-
-function resetForm() {
-  document.getElementById('employeeForm').reset();
-  showMsg('success','');
-  showMsg('error','');
-  document.getElementById('rawResp').textContent = '—';
-}
-
-function validateAndGetFormData() {
-  const name = document.getElementById('name').value.trim();
-  const email = document.getElementById('email').value.trim();
-  if (!name) throw new Error('Name is required.');
-  if (!email) throw new Error('Email is required.');
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) throw new Error('Please enter a valid email.');
-  return { name, email };
-}
-
-/* Helper: show JSON in the debug box */
-function showRaw(obj) {
-  const pre = document.getElementById('rawResp');
-  try {
-    pre.textContent = JSON.stringify(obj, null, 2);
-  } catch (e) {
-    pre.textContent = String(obj);
-  }
-}
-
-/* Classic AJAX using XMLHttpRequest for insert */
-function saveEmployeeAjax() {
-  showMsg('success',''); showMsg('error','');
-  let data;
-  try { data = validateAndGetFormData(); } catch (err) {
-    showMsg('error', err.message); return;
-  }
-
-  // JPDB typical insert envelope — adapt if your dashboard shows a different shape
-  const payload = {
-    token: CONFIG.API_TOKEN,
-    cmd: "PUT",
-    dbName: CONFIG.DB_NAME,
-    rel: CONFIG.RELATION,
-    jsonStr: { name: data.name, email: data.email, createdAt: new Date().toISOString() }
-  };
-
-  const url = CONFIG.BASE_URL + CONFIG.API_PATH; // full endpoint
-  const xhr = new XMLHttpRequest();
-
-  xhr.open('PUT', url, true); // many JPDB examples use PUT for insert
-  xhr.setRequestHeader('Content-Type', 'application/json');
-
-  xhr.onreadystatechange = function () {
-    if (xhr.readyState !== 4) return;
-    // ready
-    const status = xhr.status;
-    let resp;
-    try { resp = JSON.parse(xhr.responseText || "{}"); } catch (e) { resp = xhr.responseText; }
-    showRaw({ status, resp });
-    if (status >= 200 && status < 300) {
-      showMsg('success', 'Saved successfully. See raw response below.');
-      document.getElementById('employeeForm').reset();
-    } else {
-      showMsg('error', 'Failed to save. Status: ' + status + ' — ' + (resp.message || JSON.stringify(resp)));
+    // helper to show messages
+    function showMsg(selector, text) {
+      const el = $(selector);
+      if (!text) { el.hide().text(''); return; }
+      el.text(text).show();
     }
-  };
 
-  xhr.onerror = function () {
-    showMsg('error', 'Network error while saving.');
-  };
-
-  xhr.send(JSON.stringify(payload));
-}
-
-/* Update using AJAX (PUT) — this assumes JPDB expects an update command/envelope
-   Common way: provide a key/query to locate the record and a jsonStr with new data.
-   Adjust the payload according to your JPDB docs. */
-function updateEmployeeAjax() {
-  showMsg('success',''); showMsg('error','');
-  let data;
-  try { data = validateAndGetFormData(); } catch (err) {
-    showMsg('error', err.message); return;
-  }
-
-  // Example: JPDB update command can be "UPDATE" or a special envelope — check your docs.
-  // This example uses a hypothetical update envelope: cmd:"UPDATE", rel, token, criteria, newdata
-  const payload = {
-    token: CONFIG.API_TOKEN,
-    cmd: "UPDATE",      // change if your JPDB uses a different value (e.g. "PUT" with "q")
-    dbName: CONFIG.DB_NAME,
-    rel: CONFIG.RELATION,
-    criteria: { email: data.email }, // find by email
-    newdata: { $set: { name: data.name, updatedAt: new Date().toISOString() } }
-  };
-
-  const url = CONFIG.BASE_URL + CONFIG.API_PATH;
-  const xhr = new XMLHttpRequest();
-  xhr.open('PUT', url, true);
-  xhr.setRequestHeader('Content-Type', 'application/json');
-
-  xhr.onreadystatechange = function () {
-    if (xhr.readyState !== 4) return;
-    const status = xhr.status;
-    let resp;
-    try { resp = JSON.parse(xhr.responseText || "{}"); } catch (e) { resp = xhr.responseText; }
-    showRaw({ status, resp });
-    if (status >= 200 && status < 300) {
-      showMsg('success', 'Update request completed. Check raw response.');
-    } else {
-      showMsg('error','Update failed. Status: ' + status + ' — ' + (resp.message || JSON.stringify(resp)));
+    // reset form
+    function resetForm() {
+      $('#empForm')[0].reset();
+      showMsg('#success', '');
+      showMsg('#error', '');
+      $('#rawResp').text('—');
+      $('#empId').focus();
     }
-  };
 
-  xhr.onerror = function () {
-    showMsg('error','Network error while updating.');
-  };
+    // client-side validation + build JSON string
+    function validateAndGetFormData() {
+      const empId = $('#empId').val().trim();
+      if (!empId) { alert('Employee ID Required'); $('#empId').focus(); return ''; }
 
-  xhr.send(JSON.stringify(payload));
-}
+      const empName = $('#empName').val().trim();
+      if (!empName) { alert('Employee Name Required'); $('#empName').focus(); return ''; }
 
-/* Get / Query by email using AJAX
-   Many JPDB examples use POST with a "GET_BY_KEY" or similar cmd. Adjust to your API doc.
-   This function demonstrates sending a query payload and reading returned records. */
-function getEmployeeAjax() {
-  showMsg('success',''); showMsg('error','');
-  const email = document.getElementById('email').value.trim();
-  if (!email) { showMsg('error','Enter email to search.'); return; }
+      const empEmail = $('#empEmail').val().trim();
+      if (!empEmail) { alert('Employee Email Required'); $('#empEmail').focus(); return ''; }
 
-  // Example GET envelope — adjust fields to match your JPDB API
-  const payload = {
-    token: CONFIG.API_TOKEN,
-    cmd: "GET_BY_KEY", // or "FIND" or "QUERY" depending on JPDB
-    dbName: CONFIG.DB_NAME,
-    rel: CONFIG.RELATION,
-    key: { email: email } // envelope differs per API — adapt
-  };
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(empEmail)) { alert('Enter valid email'); $('#empEmail').focus(); return ''; }
 
-  const url = CONFIG.BASE_URL + CONFIG.API_PATH;
-  const xhr = new XMLHttpRequest();
-
-  // Some JPDB endpoints expect POST for queries; use POST here as many examples do
-  xhr.open('POST', url, true);
-  xhr.setRequestHeader('Content-Type', 'application/json');
-
-  xhr.onreadystatechange = function () {
-    if (xhr.readyState !== 4) return;
-    const status = xhr.status;
-    let resp;
-    try { resp = JSON.parse(xhr.responseText || "{}"); } catch (e) { resp = xhr.responseText; }
-    showRaw({ status, resp });
-    if (status >= 200 && status < 300) {
-      // Example: if resp contains records array
-      if (resp && resp.data && resp.data.length > 0) {
-        const first = resp.data[0];
-        document.getElementById('name').value = first.name || '';
-        document.getElementById('email').value = first.email || '';
-        showMsg('success', 'Record loaded into form.');
-      } else if (resp && resp.record) {
-        document.getElementById('name').value = resp.record.name || '';
-        document.getElementById('email').value = resp.record.email || '';
-        showMsg('success', 'Record loaded into form.');
-      } else {
-        showMsg('error', 'No record found for that email.');
-      }
-    } else {
-      showMsg('error','Fetch failed. Status: ' + status + ' — ' + (resp.message || JSON.stringify(resp)));
+      const jsonObj = {
+        empId: empId,
+        empName: empName,
+        empEmail: empEmail,
+        createdAt: new Date().toISOString()
+      };
+      return JSON.stringify(jsonObj);
     }
-  };
 
-  xhr.onerror = function () {
-    showMsg('error','Network error while fetching.');
-  };
+    // event handlers
+    $(document).ready(function () {
+      $('#empId').focus();
 
-  xhr.send(JSON.stringify(payload));
-}
+      $('#empReset').on('click', function () {
+        resetForm();
+      });
 
-/* CORS note:
-   If you see CORS errors when testing from file:/// or a different origin:
-   - Deploy the HTML through NetBeans (http://localhost:8080/YourProject/index.html) to reduce origin issues
-   - Or set up a server-side proxy (Java servlet / Node) to forward requests to JPDB
-   - Or configure allowed origins in JPDB dashboard if available
-*/
+      $('#empSave').on('click', function () {
+        saveEmployee();
+      });
+    });
 
-</script>
+    // main save
+    function saveEmployee() {
+      showMsg('#success',''); showMsg('#error','');
+
+      const jsonStr = validateAndGetFormData();
+      if (jsonStr === '') return; // validation failed
+
+      // build PUT payload using the included helper createPUTRequest (jpdb-commons.js)
+      // createPUTRequest(token, jsonStr, dbName, relName)  -> returns request string/object depending on library version.
+      const putReq = createPUTRequest(JPDB_TOKEN, jsonStr, JPDB_DB, JPDB_REL);
+
+      // show the JSON string to the user as in original project (optional)
+      // alert(putReq);  // uncomment if you want the same alert UX
+
+      // send async AJAX to JPDB API
+      $.ajax({
+        url: JPDB_BASE_URL + JPDB_IML_PATH,
+        method: 'POST',                 // POST to IML endpoint is typical
+        contentType: 'application/json',
+        data: putReq,
+        dataType: 'json',
+        success: function (resp) {
+          // show raw response
+          $('#rawResp').text(JSON.stringify(resp, null, 2));
+
+          // check for success indicators - JPDB responses vary; adapt if needed
+          if (resp && (resp.status === 200 || resp.status === 'success' || resp.data || resp.result)) {
+            showMsg('#success', 'Entry added successfully.');
+            alert('Entry added successfully.');
+            resetForm();
+          } else {
+            // if response contains error info, show it
+            showMsg('#error', 'API returned response: ' + JSON.stringify(resp));
+          }
+        },
+        error: function (xhr, status, err) {
+          let body = xhr.responseText || err || status;
+          try { body = JSON.stringify(JSON.parse(body), null, 2); } catch (e) { /* not JSON */ }
+          $('#rawResp').text(body);
+          showMsg('#error', 'Request failed: ' + status + '. See raw response below.');
+          console.error('JPDB error:', status, err, xhr);
+        }
+      });
+    }
+  </script>
 </body>
 </html>
-
